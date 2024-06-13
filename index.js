@@ -28,7 +28,7 @@ app.use(express.json());
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  roles: { type: [String], default: ["user"] }, // Role user
+  roles: { type: [String], default: ["admin"] }, // Role user
 });
 const User = mongoose.model("User", userSchema);
 
@@ -73,7 +73,7 @@ app.post("/login", async (req, res) => {
   });
   const refreshToken = jwt.sign(
     { userId: user._id, roles: user.roles },
-    JWT_SECRET_SECRET,
+    JWT_REFRESH_SECRET,
     { expiresIn: "7d" }
   );
   res.status(200).json({ token, refreshToken });
