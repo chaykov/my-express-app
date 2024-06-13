@@ -28,6 +28,7 @@ app.use(express.json());
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  roles: { type: [String], default: ["user"] }, // Role user
 });
 const User = mongoose.model("User", userSchema);
 
@@ -67,8 +68,15 @@ app.post("/login", async (req, res) => {
   }
 
   // Generation token JWT
-  const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "1h" });
-  res.status(200).json({ token });
+  const token = jwt.sign({ userId: user._id, roles: user.roles }, JWT_SECRET, {
+    expiresIn: "1h",
+  });
+  const refreshToken = jwt.sign(
+    { userId: user._id, roles: user.roles },
+    JWT_SECRET_SECRET,
+    { expiresIn: "7d" }
+  );
+  res.status(200).json({ token, refreshToken });
 });
 
 // Middleware to verify token JWT
@@ -87,9 +95,42 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
+// Middleware to verify a role for user
+const roleMiddleware = (roles) => (req, res, next) => {
+  if (!roles.includes(req.user.roles)) {
+    return res.status(403).send("Access denied");
+  }
+  next();
+};
+
 // Example to protect route for '/protected'
 app.get("/protected", authMiddleware, (req, res) => {
   res.send("This is a protected route");
+});
+
+// Example to protect routes with role
+app.get("/admin", authMiddleware, roleMiddleware(["admin"]), (req, res) => {
+  res.send("This is an admin route");
+});
+
+// Endpoint to refresh token for a user
+app.post("/refresh-token", (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) {
+    return res.status(401).send("Access denied");
+  }
+
+  try {
+    const verified = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
+    const newToken = jwt.sign(
+      { userId: verified.userId, roles: verified.roles },
+      JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+    res.status(200).json({ token: newToken });
+  } catch (err) {
+    res.status(400).send("Invalid refresh token");
+  }
 });
 
 app.listen(port, () => {
