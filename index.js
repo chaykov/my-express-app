@@ -2,6 +2,12 @@ const express = require("express");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const multer = require("multer");
+const path = require("path");
+const compression = require("compression");
+const redis = require("redis");
+const session = require("express-session");
+const RedisStore = require("connect-redis").default;
 
 const app = express();
 const port = 3000;
@@ -21,8 +27,78 @@ db.once("open", () => {
   console.log("Connected to MongoDB successfully");
 });
 
-// Middleware to parse JSON
+// Connect to Redis
+const redisClient = redis.createClient({ url: "redis://localhost:6379" });
+redisClient.connect().catch(console.error);
+
+// redisClient.on("error", (err) => {
+//   console.log("Redis error:", err);
+// });
+
+// Middleware to parse JSON and compression
 app.use(express.json());
+app.use(compression());
+
+// Configuration session
+app.use(
+  session({
+    store: new RedisStore({ client: redisClient }),
+    secret: "6025bf2351553ac23aedbcfacdbb738db9197693b95cfd6958a34bf34f24fca6",
+    resave: false,
+    saveUninitialized: false,
+  })
+);
+
+// Configuration Multer
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/");
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(
+      null,
+      file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname)
+    );
+  },
+});
+
+const upload = multer({ storage: storage });
+
+// Endpoint to upload files
+app.post("/upload", upload.single("file"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).send("No file uploaded.");
+  }
+  res.status(200).send(`File uploaded successfully: ${req.file.filename}`);
+});
+
+// Serwowanie plików statycznych z katalogu 'public'
+app.use(express.static("public"));
+
+// Example in using Redis for cache
+app.get("/data", (req, res) => {
+  const key =
+    "6025bf2351553ac23aedbcfacdbb738db9197693b95cfd6958a34bf34f24fca6";
+
+  redisClient
+    .get(key, (err, data) => {
+      if (err) throw err;
+
+      if (data !== null) {
+        res.send(JSON.parse(data));
+      } else {
+        // Pobierz dane z bazy danych lub innego zrodla
+        const newData = { some: "data" };
+
+        redisClient.setEx(key, 3600, JSON.stringify(newData)); // cacheowanie na 1 godzinę
+        res.send(newData);
+      }
+    })
+    .catch((err) => {
+      res.status(500).send(err.message);
+    });
+});
 
 // Definition model
 const userSchema = new mongoose.Schema({
@@ -136,3 +212,5 @@ app.post("/refresh-token", (req, res) => {
 app.listen(port, () => {
   console.log(`App online ${port}`);
 });
+
+module.exports = app; // Eksportowanie aplikacji dla testów
